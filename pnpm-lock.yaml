@@ -68,6 +68,9 @@ importers:
       kafkajs:
         specifier: ^2.2.4
         version: 2.2.4
+      kafkajs-snappy:
+        specifier: ^1.1.0
+        version: 1.1.0
       next:
         specifier: 15.0.4
         version: 15.0.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -105,6 +108,9 @@ importers:
       '@react-types/shared':
         specifier: 3.25.0
         version: 3.25.0(react@18.3.1)
+      '@types/kafkajs-snappy':
+        specifier: ^1.0.0
+        version: 1.0.0
       '@types/node':
         specifier: 20.5.7
         version: 20.5.7
@@ -995,6 +1001,9 @@ packages:
 
   '@types/json5@0.0.29':
     resolution: {integrity: sha512-dRLjCWHYg4oaA77cxO64oO+7JwCwnIzkZPdrrC71jQmQtlhM556pwKo5bUzqvZndkVbeFLIIi+9TC40JNF5hNQ==}
+
+  '@types/kafkajs-snappy@1.0.0':
+    resolution: {integrity: sha512-P0DdLdmn5z4foYpCVTMpEGVpfrHG7C6cpzeysxw79rfyESp5/k0wiCOfI4euDKsc6N/2+BHaNoTGwmNLmxCUWw==}
 
   '@types/linkify-it@5.0.0':
     resolution: {integrity: sha512-sVDA58zAw4eWAffKOaQH5/5j3XeayukzDk+ewSsnv3p4yJEZHCCzMDiZM8e0OUrRvmpGZ85jf4yDHkHsgBNr9Q==}
@@ -2115,6 +2124,10 @@ packages:
     resolution: {integrity: sha512-ZZow9HBI5O6EPgSJLUb8n2NKgmVWTwCvHGwFuJlMjvLFqlGG6pjirPhtdsseaLZjSibD8eegzmYpUZwoIlj2cQ==}
     engines: {node: '>=4.0'}
 
+  kafkajs-snappy@1.1.0:
+    resolution: {integrity: sha512-M4h2WhlxhXmR64z8nwzfGa1Dhhz78vykRfySRL8tuYQ8e6JSOuclbF2FJ8jeMJP3EZWw3uhjvwHlz7Ucu3UdWA==}
+    engines: {node: '>=8.0.0'}
+
   kafkajs@2.2.4:
     resolution: {integrity: sha512-j/YeapB1vfPT2iOIUn/vxdyKEuhuY2PxMBvf5JWux6iSaukAccrMtXEY/Lb7OvavDhOWME589bpLrEdnVHjfjA==}
     engines: {node: '>=14.0.0'}
@@ -2703,6 +2716,9 @@ packages:
 
   size-sensor@1.0.2:
     resolution: {integrity: sha512-2NCmWxY7A9pYKGXNBfteo4hy14gWu47rg5692peVMst6lQLPKrVjhY+UTEsPI5ceFRJSl3gVgMYaUi/hKuaiKw==}
+
+  snappyjs@0.6.1:
+    resolution: {integrity: sha512-YIK6I2lsH072UE0aOFxxY1dPDCS43I5ktqHpeAsuLNYWkE5pGxRGWfDM4/vSUfNzXjC1Ivzt3qx31PCLmc9yqg==}
 
   snappyjs@0.7.0:
     resolution: {integrity: sha512-u5iEEXkMe2EInQio6Wv9LWHOQYRDbD2O9hzS27GpT/lwfIQhTCnHCTqedqHIHe9ZcvQo+9au6vngQayipz1NYw==}
@@ -4105,6 +4121,10 @@ snapshots:
 
   '@types/json5@0.0.29': {}
 
+  '@types/kafkajs-snappy@1.0.0':
+    dependencies:
+      '@types/node': 20.5.7
+
   '@types/linkify-it@5.0.0': {}
 
   '@types/markdown-it@14.1.2':
@@ -5418,6 +5438,10 @@ snapshots:
       object.assign: 4.1.7
       object.values: 1.2.1
 
+  kafkajs-snappy@1.1.0:
+    dependencies:
+      snappyjs: 0.6.1
+
   kafkajs@2.2.4: {}
 
   keyv@4.5.4:
@@ -6058,6 +6082,8 @@ snapshots:
       is-arrayish: 0.3.2
 
   size-sensor@1.0.2: {}
+
+  snappyjs@0.6.1: {}
 
   snappyjs@0.7.0: {}
 

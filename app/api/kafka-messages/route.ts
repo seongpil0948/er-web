@@ -1,9 +1,13 @@
 // app/api/kafka-messages/route.ts
 import { NextResponse } from 'next/server';
-import { Kafka } from 'kafkajs';
+import { Kafka, CompressionTypes, CompressionCodecs } from 'kafkajs';
 import * as SnappyJS from 'snappyjs';
 // 생성된 protobuf 타입 임포트
 import { opentelemetry } from '../../../app/proto/proto';
+import  SnappyCodec from 'kafkajs-snappy'
+
+CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
+
 
 // 필요한 메시지 타입들
 const { TracesData } = opentelemetry.proto.trace.v1;

@@ -35,6 +35,17 @@ export function parseTraceData(traceData: any) {
           const endTimeMs = Math.floor(endTimeNano / 1000000);
           const durationMs = endTimeMs - startTimeMs;
           
+          // 속성에서 latency 관련 정보 추출 (있는 경우)
+          const attributes = parseAttributes(span.attributes);
+          let latency = durationMs;
+          
+          // http.latency 또는 db.latency 등의 속성이 있으면 해당 값 사용
+          if (attributes['http.latency']) {
+            latency = parseFloat(attributes['http.latency']);
+          } else if (attributes['db.latency']) {
+            latency = parseFloat(attributes['db.latency']);
+          }
+          
           return {
             traceId,
             spanId,
@@ -44,12 +55,15 @@ export function parseTraceData(traceData: any) {
             startTime: startTimeMs,
             endTime: endTimeMs,
             duration: durationMs > 0 ? durationMs : 0,
+            latency: latency > 0 ? latency : durationMs,
             attributes: {
-              ...parseAttributes(span.attributes),
+              ...attributes,
               resourceAttributes: resourceAttrs,
               scopeName: scope.name,
               scopeVersion: scope.version
-            }
+            },
+            // 원본 데이터 참조 (필요 시)
+            rawSpan: span
           };
         });
       });
@@ -90,9 +104,13 @@ export function parseLogData(logData: any) {
           const observedTimeNano = typeof logRecord.observedTimeUnixNano === 'string' ? 
             parseInt(logRecord.observedTimeUnixNano) : Number(logRecord.observedTimeUnixNano || 0);
           
+          // 밀리초 단위로 변환
+          const timeMs = Math.floor(timeNano / 1000000);
+          const observedTimeMs = Math.floor(observedTimeNano / 1000000);
+          
           return {
-            timeUnixNano: Math.floor(timeNano / 1000000),
-            observedTimeUnixNano: Math.floor(observedTimeNano / 1000000),
+            timeUnixNano: timeMs,
+            observedTimeUnixNano: observedTimeMs,
             severityNumber: typeof logRecord.severityNumber === 'string' ? 
               parseInt(logRecord.severityNumber) : logRecord.severityNumber,
             severityText: logRecord.severityText || '',
@@ -104,7 +122,11 @@ export function parseLogData(logData: any) {
               resourceAttributes: resourceAttrs,
               scopeName: scope.name,
               scopeVersion: scope.version
-            }
+            },
+            // 타임스탬프 (차트용)
+            timestamp: timeMs,
+            // 원본 데이터 참조 (필요 시)
+            rawLogRecord: logRecord
           };
         });
       });
@@ -221,83 +243,40 @@ function parseBody(body: any) {
   return JSON.stringify(body);
 }
 
-// 트레이스와 로그 데이터를 차트에서 사용할 형식으로 변환
-export function convertToChartData(traces: any[], logs: any[]) {
-  // 트레이스 데이터를 점으로 변환
-  const tracePoints = traces.map(trace => {
-    // 랜덤성을 줄이고 비슷한 트레이스를 그룹화하기 위한 해시 함수
-    const xCoord = hashString(trace.traceId || '') % 100;
-    const yCoord = trace.duration / 10; // 지속 시간을 Y 좌표로 사용
-    
-    return {
-      value: [xCoord, yCoord],
-      itemStyle: {
-        color: 'rgba(81, 162, 252, 0.8)'
-      },
-      originalData: trace,
-      dataType: 'trace'
-    };
-  });
+// 실시간 차트를 위한 시계열 데이터 변환 함수
+export function convertToTimeSeriesData(traces: any[]) {
+  if (!traces || !traces.length) return [];
   
-  // 로그 데이터를 점으로 변환
-  const logPoints = logs.map(log => {
-    // 로그에 연관된 트레이스가 있으면 사용, 없으면 해시 생성
-    const xCoord = log.traceId ? 
-      hashString(log.traceId) % 100 : 
-      hashString(log.attributes.resourceAttributes?.service_name || '') % 100;
-    
-    const severityToY: Record<number, number> = {
-      1: 10, // TRACE
-      5: 20, // DEBUG
-      9: 30, // INFO
-      13: 60, // WARN
-      17: 90, // ERROR
-      21: 100 // FATAL
-    };
-    
-    const yCoord = severityToY[log.severityNumber] || 50;
-    
-    return {
-      value: [xCoord, yCoord],
-      itemStyle: {
-        color: getSeverityColor(log.severityNumber)
-      },
-      originalData: log,
-      dataType: 'log'
-    };
-  });
+  // 시간 순으로 정렬
+  const sortedTraces = [...traces].sort((a, b) => a.startTime - b.startTime);
   
-  return {
-    trace: tracePoints,
-    log: logPoints
-  };
+  // [시간, 지연시간] 형식의 배열 생성
+  return sortedTraces.map(trace => [trace.startTime, trace.latency || trace.duration]);
 }
 
-// 문자열 해시 함수
-function hashString(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // 32비트 정수로 변환
-  }
-  return Math.abs(hash);
-}
-
-// 심각도에 따른 색상 반환
-function getSeverityColor(severity: number): string {
-  switch (true) {
-    case severity <= 4: // TRACE
-      return 'rgba(150, 150, 150, 0.8)';
-    case severity <= 8: // DEBUG
-      return 'rgba(100, 200, 200, 0.8)';
-    case severity <= 12: // INFO
-      return 'rgba(100, 200, 100, 0.8)';
-    case severity <= 16: // WARN
-      return 'rgba(240, 200, 100, 0.8)';
-    case severity <= 20: // ERROR
-      return 'rgba(240, 100, 100, 0.8)';
-    default: // FATAL
-      return 'rgba(180, 40, 40, 0.8)';
-  }
+// 차트 데이터 통계 계산 함수
+export function calculateLatencyStatistics(traces: any[]) {
+  if (!traces || !traces.length) return { avg: 0, max: 0, min: 0, p95: 0, p99: 0 };
+  
+  const latencies = traces.map(t => t.latency || t.duration).filter(l => l > 0);
+  
+  if (!latencies.length) return { avg: 0, max: 0, min: 0, p95: 0, p99: 0 };
+  
+  // 정렬
+  latencies.sort((a, b) => a - b);
+  
+  // 통계 계산
+  const sum = latencies.reduce((acc, val) => acc + val, 0);
+  const avg = sum / latencies.length;
+  const max = latencies[latencies.length - 1];
+  const min = latencies[0];
+  
+  // 백분위수 계산
+  const p95Index = Math.floor(latencies.length * 0.95);
+  const p99Index = Math.floor(latencies.length * 0.99);
+  
+  const p95 = latencies[p95Index];
+  const p99 = latencies[p99Index];
+  
+  return { avg, max, min, p95, p99 };
 }
