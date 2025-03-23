@@ -6,9 +6,11 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --ext .ts,.tsx -c .eslintrc.json --fix"
+    "lint": "eslint . --ext .ts,.tsx -c .eslintrc.json --fix",
+    "cp:proto": "cp -r /Users/2309-n0015/Code/Temp/opentelemetry-proto/opentelemetry/proto ./proto"
   },
   "dependencies": {
+    "@confluentinc/kafka-javascript": "^1.2.0",
     "@heroui/button": "2.2.16",
     "@heroui/code": "2.2.12",
     "@heroui/input": "2.4.16",
@@ -30,10 +32,14 @@
     "kafkajs": "^2.2.4",
     "next": "15.0.4",
     "next-themes": "^0.4.4",
+    "next-transpile-modules": "^10.0.1",
+    "protobufjs": "^7.4.0",
+    "protobufjs-cli": "^1.1.3",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-query": "^3.39.3",
-    "snappyjs": "^0.7.0"
+    "snappyjs": "^0.7.0",
+    "ts-proto": "^2.6.1"
   },
   "devDependencies": {
     "@next/eslint-plugin-next": "15.0.4",
@@ -63,6 +69,7 @@
   },
   "pnpm": {
     "ignoredBuiltDependencies": [
+      "@confluentinc/kafka-javascript",
       "@heroui/shared-utils",
       "sharp"
     ]

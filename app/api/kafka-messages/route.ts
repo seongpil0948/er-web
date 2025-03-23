@@ -1,88 +1,180 @@
+// app/api/kafka-messages/route.ts
 import { NextResponse } from 'next/server';
-import { Kafka, EachMessagePayload } from 'kafkajs';
+import { Kafka } from 'kafkajs';
+import * as SnappyJS from 'snappyjs';
+// 생성된 protobuf 타입 임포트
+import { opentelemetry } from '../../../app/proto/proto';
 
-// 메시지를 저장할 인메모리 캐시
-let traceMessages: any[] = [];
-let logMessages: any[] = [];
-let consumer: any = null;
+// 필요한 메시지 타입들
+const { TracesData } = opentelemetry.proto.trace.v1;
+const { LogsData } = opentelemetry.proto.logs.v1;
 
-export async function GET() {
-  // 캐시된 메시지 반환
-  return NextResponse.json({
-    traces: traceMessages.slice(-100),
-    logs: logMessages.slice(-100)
-  });
+// 싱글톤 패턴으로 Kafka 인스턴스 관리
+let kafkaInstance: Kafka | null = null;
+let consumerInstance: any = null;
+let isConsumerRunning = false;
+
+// 메시지 캐시
+let messageCache = {
+  traces: [] as any[],
+  logs: [] as any[]
+};
+
+// Kafka 인스턴스 가져오기
+function getKafkaInstance() {
+  if (!kafkaInstance) {
+    kafkaInstance = new Kafka({
+      clientId: 'nextjs-otlp-client',
+      brokers: ['10.101.91.181:9092', '10.101.91.181:9093'],
+      retry: {
+        initialRetryTime: 100,
+        retries: 8
+      }
+    });
+  }
+  return kafkaInstance;
 }
 
-// 서버 시작 시 소비자 설정
-async function initConsumer() {
-  console.log('Initializing Kafka consumer...');
-  // Kafka 클라이언트 설정
-  const kafka = new Kafka({
-    clientId: 'nextjs-otlp-client',
-    brokers: ['10.101.91.181:9092', '10.101.91.181:9093']
-  });
-  console.log("Kafka client created" , kafka);
-
-  if (!consumer) {
-    console.log("Creating consumer");
-    consumer = kafka.consumer({ 
-      groupId: 'nextjs-otlp-group' 
-    });
+// 메시지 압축 해제하기
+function decompressMessage(buffer: Buffer): Buffer {
+  try {
+    // Snappy로 압축된 메시지인지 확인하는 간단한 방법
+    // Snappy 헤더 검사 (대략적인 방법)
+    if (buffer.length > 4 && buffer[0] === 0xff && buffer[1] === 0x06 && buffer[2] === 0x00 && buffer[3] === 0x00) {
+      return Buffer.from(SnappyJS.uncompress(buffer));
+    }
     
-    await consumer.connect();
-    
-    await consumer.subscribe({ 
-      topic: 'onpremise.theshop.oltp.dev.trace', 
-      fromBeginning: false 
-    });
-    
-    await consumer.subscribe({ 
-      topic: 'onpremise.theshop.oltp.dev.log', 
-      fromBeginning: false 
-    });
-    
-    // 메시지 처리
-    await consumer.run({
-      eachMessage: async ({ topic, partition, message }: EachMessagePayload) => {
-        console.log('Received message:', {
-          topic,
-          partition,
-          offset: message.offset,
-          value: message.value?.toString()
-        });
-        const value = message.value?.toString();
-        if (!value) return;
-        
-        try {
-          const data = JSON.parse(value);
-          
-          if (topic === 'onpremise.theshop.oltp.dev.trace') {
-            traceMessages.push({
-              timestamp: Date.now(),
-              data
-            });
-            // 캐시 크기 제한
-            if (traceMessages.length > 1000) {
-              traceMessages = traceMessages.slice(-1000);
-            }
-          } else if (topic === 'onpremise.theshop.oltp.dev.log') {
-            logMessages.push({
-              timestamp: Date.now(),
-              data
-            });
-            // 캐시 크기 제한
-            if (logMessages.length > 1000) {
-              logMessages = logMessages.slice(-1000);
-            }
-          }
-        } catch (error) {
-          console.error('Failed to parse message:', error);
-        }
-      },
-    });
+    // 압축되지 않은 메시지로 판단
+    return buffer;
+  } catch (error) {
+    console.warn('Failed to decompress message, using raw buffer:', error);
+    return buffer;
   }
 }
 
-initConsumer().catch(console.error);
+// Kafka 소비자 시작
+async function startKafkaConsumer() {
+  if (isConsumerRunning) return;
+  
+  try {
+    const kafka = getKafkaInstance();
+    
+    if (!consumerInstance) {
+      consumerInstance = kafka.consumer({ 
+        groupId: 'nextjs-otlp-consumer',
+        sessionTimeout: 30000,
+        heartbeatInterval: 5000
+      });
+    }
+    
+    await consumerInstance.connect();
+    
+    // 토픽 구독
+    await consumerInstance.subscribe({ 
+      topics: ['onpremise.theshop.oltp.dev.trace', 'onpremise.theshop.oltp.dev.log'],
+      fromBeginning: false 
+    });
+    
+    // 메시지 소비 시작
+    await consumerInstance.run({
+      eachMessage: async ({ topic, partition, message }: any) => {
+        try {
+          if (!message.value) return;
+          
+          // 메시지 압축 해제
+          const decompressedValue = decompressMessage(message.value);
+          
+          // 토픽에 따라 적절한 protobuf 타입으로 디코딩
+          if (topic === 'onpremise.theshop.oltp.dev.trace') {
+            // 생성된 proto.d.ts의 메시지 타입 사용
+            const decoded = TracesData.decode(new Uint8Array(decompressedValue));
+            const data = TracesData.toObject(decoded, {
+              longs: String,
+              enums: String,
+              defaults: true
+            });
+            
+            // 메시지 캐시에 저장 (최대 100개 유지)
+            messageCache.traces.unshift({ 
+              offset: message.offset, 
+              timestamp: message.timestamp,
+              data 
+            });
+            
+            if (messageCache.traces.length > 100) {
+              messageCache.traces = messageCache.traces.slice(0, 100);
+            }
+          } 
+          else if (topic === 'onpremise.theshop.oltp.dev.log') {
+            const decoded = LogsData.decode(new Uint8Array(decompressedValue));
+            const data = LogsData.toObject(decoded, {
+              longs: String,
+              enums: String,
+              defaults: true
+            });
+            
+            // 메시지 캐시에 저장 (최대 100개 유지)
+            messageCache.logs.unshift({ 
+              offset: message.offset, 
+              timestamp: message.timestamp,
+              data 
+            });
+            
+            if (messageCache.logs.length > 100) {
+              messageCache.logs = messageCache.logs.slice(0, 100);
+            }
+          }
+        } catch (error) {
+          console.error('Error processing message:', error);
+        }
+      },
+    });
+    
+    isConsumerRunning = true;
+    console.log('Kafka consumer started successfully');
+  } catch (error) {
+    console.error('Error starting Kafka consumer:', error);
+    isConsumerRunning = false;
+    
+    // 연결 실패 시 인스턴스 재설정
+    if (consumerInstance) {
+      try {
+        await consumerInstance.disconnect();
+      } catch (e) {
+        console.error('Error disconnecting consumer:', e);
+      }
+      consumerInstance = null;
+    }
+    
+    throw error;
+  }
+}
 
+// GET 메서드 핸들러
+export async function GET() {
+  try {
+
+      await startKafkaConsumer().catch(error => {
+        console.error('Failed to start Kafka consumer:', error);
+      });
+    
+    // 캐시된 메시지 반환
+    return NextResponse.json({
+      traces: messageCache.traces,
+      logs: messageCache.logs,
+      consumerRunning: isConsumerRunning,
+    });
+  } catch (error) {
+    console.error('API handler error:', error);
+    
+    // 오류 발생 시 시뮬레이션 데이터 사용
+    
+    return NextResponse.json({ 
+      error: 'Failed to retrieve telemetry data',
+      details: (error as Error).message,
+      traces: messageCache.traces.length > 0 ? messageCache.traces : [],
+      logs: messageCache.logs.length > 0 ? messageCache.logs : [],
+      consumerRunning: false,
+    }, { status: 200 });
+  }
+}

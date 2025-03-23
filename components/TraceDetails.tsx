@@ -1,3 +1,5 @@
+// app/components/TraceDetails.tsx
+'use client';
 import React from 'react';
 
 interface TraceDetailsProps {
@@ -8,52 +10,31 @@ const TraceDetails: React.FC<TraceDetailsProps> = ({ trace }) => {
   if (!trace) return null;
   
   return (
-    <div className="trace-details">
-      <h3>Trace Details</h3>
-      <div className="trace-header">
-        <p><strong>Name:</strong> {trace.name}</p>
-        <p><strong>Trace ID:</strong> {trace.traceId}</p>
-        <p><strong>Span ID:</strong> {trace.spanId}</p>
+    <div className="bg-blue-50 rounded-lg shadow-lg p-6 mt-6">
+      <h3 className="text-xl font-bold mb-4">Trace Details</h3>
+      <div className="mb-4">
+        <p className="mb-1"><strong>Name:</strong> {trace.name}</p>
+        <p className="mb-1"><strong>Trace ID:</strong> {trace.traceId}</p>
+        <p className="mb-1"><strong>Span ID:</strong> {trace.spanId}</p>
         {trace.parentSpanId && (
-          <p><strong>Parent Span ID:</strong> {trace.parentSpanId}</p>
+          <p className="mb-1"><strong>Parent Span ID:</strong> {trace.parentSpanId}</p>
         )}
-        <p><strong>Kind:</strong> {getSpanKindName(trace.kind)}</p>
-        <p><strong>Duration:</strong> {trace.duration}ms</p>
-        <p>
+        <p className="mb-1"><strong>Kind:</strong> {getSpanKindName(trace.kind)}</p>
+        <p className="mb-1"><strong>Duration:</strong> {trace.duration}ms</p>
+        <p className="mb-1">
           <strong>Time Range:</strong> {new Date(Number(trace.startTime)).toLocaleTimeString()} - {new Date(Number(trace.endTime)).toLocaleTimeString()}
         </p>
       </div>
       
-      <div className="trace-attributes">
-        <h4>Attributes:</h4>
-        <pre>{JSON.stringify(trace.attributes, null, 2)}</pre>
+      <div>
+        <h4 className="text-lg font-semibold mb-2">Attributes:</h4>
+        <pre className="bg-blue-100 p-3 rounded overflow-x-auto">{JSON.stringify(trace.attributes, null, 2)}</pre>
       </div>
-      
-      <style jsx>{`
-        .trace-details {
-          background-color: #f0f5ff;
-          border-radius: 4px;
-          padding: 16px;
-          margin-top: 20px;
-        }
-        .trace-header {
-          margin-bottom: 16px;
-        }
-        .trace-attributes {
-          margin-top: 16px;
-        }
-        pre {
-          background-color: #e6eeff;
-          padding: 12px;
-          border-radius: 4px;
-          overflow-x: auto;
-        }
-      `}</style>
     </div>
   );
 };
 
-// Span Kind 숫자를 텍스트로 변환
+// SpanKind 숫자를 텍스트로 변환
 function getSpanKindName(kind: number): string {
   switch (kind) {
     case 0: return 'UNSPECIFIED';

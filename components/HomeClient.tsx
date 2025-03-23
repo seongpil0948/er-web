@@ -1,11 +1,14 @@
+// app/components/HomeClient.tsx
 'use client';
 import React, { useState, useEffect } from 'react';
-import Head from 'next/head';
 import { useQuery } from 'react-query';
-import TraceVisualization from '../components/TraceVisualization';
-import LogViewer from '../components/LogViewer';
-import TraceDetails from '../components/TraceDetails';
-import { parseTraceData, parseLogData } from '../lib/otlp-parser';
+import dynamic from 'next/dynamic';
+import { parseLogData, parseTraceData } from '@/lib/otlp-parser';
+
+// 서버 컴포넌트와 클라이언트 컴포넌트 구분을 위해 dynamic import 사용
+const TraceVisualization = dynamic(() => import('./TraceVisualization'), { ssr: false });
+const LogViewer = dynamic(() => import('./LogViewer'), { ssr: false });
+const TraceDetails = dynamic(() => import('./TraceDetails'), { ssr: false });
 
 export function HomeClient() {
   // 선택된 데이터 상태
@@ -62,28 +65,32 @@ export function HomeClient() {
   
   return (
     <div>
-      <Head>
-        <title>OTLP Data Visualization</title>
-        <meta name="description" content="Visualization of OTLP traces and logs" />
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
-      
-      <main className="container">
-        <h1>OTLP Data Visualization</h1>
+      <main className="container mx-auto px-4 py-8">
+        <h1 className="text-3xl font-bold text-center mb-8">OTLP Data Visualization</h1>
         
         {error ? (
-          <div className="error-message">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
             <p>Error loading data: {(error as Error).message}</p>
-            <button onClick={() => refetch()}>Retry</button>
+            <button 
+              onClick={() => refetch()}
+              className="mt-2 bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+            >
+              Retry
+            </button>
           </div>
         ) : (
           <>
-            <div className="stats">
+            <div className="flex justify-between items-center mb-4">
               <p>Loaded {parsedData.traces.length} traces and {parsedData.logs.length} logs</p>
-              <button onClick={() => refetch()}>Refresh Data</button>
+              <button 
+                onClick={() => refetch()}
+                className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+              >
+                Refresh Data
+              </button>
             </div>
             
-            <div className="visualization-container">
+            <div className="mb-8">
               <TraceVisualization
                 traceData={parsedData.traces}
                 logData={parsedData.logs}
@@ -101,52 +108,8 @@ export function HomeClient() {
           </>
         )}
       </main>
-      
-      <style jsx>{`
-        .container {
-          padding: 2rem;
-          max-width: 1200px;
-          margin: 0 auto;
-        }
-        
-        h1 {
-          text-align: center;
-          margin-bottom: 2rem;
-        }
-        
-        .error-message {
-          color: red;
-          padding: 1rem;
-          background-color: #ffeeee;
-          border-radius: 4px;
-          text-align: center;
-        }
-        
-        .stats {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 1rem;
-        }
-        
-        .visualization-container {
-          margin-bottom: 2rem;
-        }
-        
-        button {
-          background-color: #4a89dc;
-          color: white;
-          border: none;
-          padding: 0.5rem 1rem;
-          border-radius: 4px;
-          cursor: pointer;
-        }
-        
-        button:hover {
-          background-color: #3b7dd8;
-        }
-      `}</style>
     </div>
   );
 }
+
 export default HomeClient;

@@ -1,6 +1,11 @@
+// app/components/TraceVisualization.tsx
+'use client';
 import React, { useState, useEffect, useCallback } from 'react';
-import ReactECharts from 'echarts-for-react';
-import { convertToChartData } from '../lib/otlp-parser';
+import dynamic from 'next/dynamic';
+import { convertToChartData } from '@/lib/otlp-parser';
+
+// 서버 사이드 렌더링 없이 클라이언트에서만 로드하기 위해 dynamic import 사용
+const ReactECharts = dynamic(() => import('echarts-for-react'), { ssr: false });
 
 interface TraceVisualizationProps {
   traceData: any[];
@@ -101,12 +106,18 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
   };
   
   return (
-    <div className="chart-container">
-      <ReactECharts
-        option={option}
-        style={{ height: '600px', width: '100%' }}
-        onEvents={onEvents}
-      />
+    <div className="w-full bg-white rounded-lg shadow-lg p-4">
+      {traceData.length === 0 && logData.length === 0 ? (
+        <div className="h-96 flex items-center justify-center text-gray-500">
+          <p>데이터가 로드되지 않았습니다. 데이터가 수신되면 여기에 표시됩니다.</p>
+        </div>
+      ) : (
+        <ReactECharts
+          option={option}
+          style={{ height: '600px', width: '100%' }}
+          onEvents={onEvents}
+        />
+      )}
     </div>
   );
 };
