@@ -35,10 +35,8 @@ export function HomeClient() {
     p99: 0
   });
   
-  // 자동 새로고침 간격 (밀리초)
   const [refreshInterval, setRefreshInterval] = useState(5000);
   
-  // Kafka 메시지 가져오기
   const { data, error, refetch, isLoading } = useQuery('kafkaMessages', async () => {
     const response = await fetch('/api/kafka-messages');
     if (!response.ok) {
@@ -130,7 +128,7 @@ export function HomeClient() {
             </div>
             
             {/* 지연 시간 통계 */}
-            <div className="grid grid-cols-5 gap-4 mb-8">
+            {/* <div className="grid grid-cols-5 gap-4 mb-8">
               <div className="bg-white p-4 rounded-lg shadow-md text-center">
                 <h3 className="text-lg font-semibold text-gray-700">평균 지연 시간</h3>
                 <p className="text-3xl font-bold text-blue-600">{latencyStats.avg.toFixed(2)}ms</p>
@@ -151,7 +149,7 @@ export function HomeClient() {
                 <h3 className="text-lg font-semibold text-gray-700">99 백분위수</h3>
                 <p className="text-3xl font-bold text-orange-600">{latencyStats.p99.toFixed(2)}ms</p>
               </div>
-            </div>
+            </div> */}
             
             <div className="mb-8">
               <TraceVisualization

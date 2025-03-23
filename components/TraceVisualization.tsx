@@ -1,23 +1,32 @@
-// components/TraceVisualization.tsx
 'use client';
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import dynamic from 'next/dynamic';
-import { parseTraceData } from '@/lib/otlp-parser';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import ReactECharts from 'echarts-for-react';
+import debounce from 'lodash.debounce'; // Add this import
 
-// 서버 사이드 렌더링 없이 클라이언트에서만 로드하기 위해 dynamic import 사용
-const ReactECharts = dynamic(() => import('echarts-for-react'), { ssr: false });
+// Define proper types for trace and log data
+interface TraceItem {
+  startTime: number;
+  duration: number;
+  [key: string]: any;
+}
+
+interface LogItem {
+  timestamp: number;
+  [key: string]: any;
+}
 
 interface TraceVisualizationProps {
-  traceData: any[];
-  logData: any[];
+  traceData: TraceItem[];
+  logData: LogItem[];
   onDataPointClick: (data: any, type: 'trace' | 'log') => void;
 }
 
-// 실시간 데이터를 위한 윈도우 사이즈 (데이터 포인트 수)
+// Configuration constants
 const MAX_DATA_POINTS = 100;
-
-// 지연 시간의 임계값 설정 (이 값 이상이면 효과를 줌)
 const LATENCY_THRESHOLD = 300; // 300ms
+
+// Define chart data types
+type DataPoint = [number, number]; // [timestamp, latency]
 
 const TraceVisualization: React.FC<TraceVisualizationProps> = ({
   traceData,
@@ -25,45 +34,33 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
   onDataPointClick
 }) => {
   const [option, setOption] = useState<any>({});
-  
-  // 차트에 표시할 시계열 데이터
-  const [timeSeriesData, setTimeSeriesData] = useState<Array<[number, number]>>([]);
-  
-  // 고지연 데이터를 따로 저장 (effectScatter로 표시할 데이터)
-  const [highLatencyData, setHighLatencyData] = useState<Array<[number, number]>>([]);
-  
-  // 마지막으로 처리된 데이터의 타임스탬프를 추적
+  const [timeSeriesData, setTimeSeriesData] = useState<DataPoint[]>([]);
+  const [highLatencyData, setHighLatencyData] = useState<DataPoint[]>([]);
   const lastProcessedTimestampRef = useRef<number>(0);
-  
-  // ECharts 인스턴스 참조
-  const chartInstanceRef = useRef<any>(null);
+  const echartsRef = useRef<InstanceType<typeof ReactECharts>>(null);
 
-  // 트레이스 데이터가 변경될 때 시계열 데이터 업데이트
-  useEffect(() => {
-    if (!traceData.length) return;
+  // Process new trace data
+  const processTraceData = useCallback((newTraces: TraceItem[]) => {
+    if (!newTraces.length) return false;
 
-    // 새로운 데이터 처리
-    const newTimeSeriesData = [...timeSeriesData];
-    const newHighLatencyData: Array<[number, number]> = [...highLatencyData];
+    let newData: DataPoint[] = [];
+    let newHighLatencyData: DataPoint[] = [];
     let hasNewData = false;
 
-    // 새로운 트레이스 데이터에서 시간과 지연 시간 추출
-    traceData.forEach(trace => {
-      const timestamp = trace.startTime; // 밀리초 단위 타임스탬프
+    // Process only new trace data since last update
+    newTraces.forEach(trace => {
+      const timestamp = trace.startTime;
       
-      // 이미 처리된 데이터는 스킵
       if (timestamp <= lastProcessedTimestampRef.current) {
         return;
       }
       
-      const latency = trace.duration; // 밀리초 단위 지연 시간
+      const latency = trace.duration;
       
       if (timestamp && latency) {
-        // 데이터 포인트 추가
-        const dataPoint: [number, number] = [timestamp, latency];
-        newTimeSeriesData.push(dataPoint);
+        const dataPoint: DataPoint = [timestamp, latency];
+        newData.push(dataPoint);
         
-        // 지연 시간이 임계값을 넘으면 고지연 데이터에도 추가
         if (latency > LATENCY_THRESHOLD) {
           newHighLatencyData.push(dataPoint);
         }
@@ -72,95 +69,104 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
       }
     });
 
-    // 데이터가 추가되었을 경우에만 상태 업데이트
     if (hasNewData) {
-      // 시간순으로 정렬
-      newTimeSeriesData.sort((a, b) => a[0] - b[0]);
-      newHighLatencyData.sort((a, b) => a[0] - b[0]);
-      
-      // 데이터 포인트 수 제한 (최신 데이터 유지)
-      const limitedData = newTimeSeriesData.slice(-MAX_DATA_POINTS);
-      const limitedHighLatencyData = newHighLatencyData.slice(-MAX_DATA_POINTS);
-      
-      // 마지막 처리 타임스탬프 업데이트
-      if (limitedData.length > 0) {
-        lastProcessedTimestampRef.current = limitedData[limitedData.length - 1][0];
-      }
-      
-      setTimeSeriesData(limitedData);
-      setHighLatencyData(limitedHighLatencyData);
-    }
-  }, [traceData]);
-
-  // 시계열 데이터가 변경될 때 차트 옵션 업데이트
-  useEffect(() => {
-    // 데이터가 없으면 기본 차트 표시
-    if (timeSeriesData.length === 0) {
-      const now = Date.now();
-      // 빈 차트 설정
-      setOption({
-        title: {
-          text: '실시간 지연 시간 모니터링',
-          left: 'center'
-        },
-        tooltip: {
-          trigger: 'item',
-          formatter: function(params: any) {
-            const timestamp = params.value[0];
-            const latency = params.value[1];
-            return `${new Date(timestamp).toLocaleTimeString()}<br/>지연 시간: ${latency}ms`;
-          }
-        },
-        xAxis: {
-          type: 'time',
-          name: '시간',
-          nameLocation: 'middle',
-          nameGap: 30,
-          axisLabel: {
-            formatter: (value: number) => {
-              return new Date(value).toLocaleTimeString();
-            }
-          }
-        },
-        yAxis: {
-          type: 'value',
-          name: '지연 시간 (ms)',
-          nameLocation: 'middle',
-          nameGap: 40
-        },
-        grid: {
-          left: '5%',
-          right: '5%',
-          bottom: '10%',
-          top: '15%',
-          containLabel: true
-        },
-        series: [
-          {
-            name: '지연 시간',
-            type: 'scatter',
-            symbol: 'circle',
-            symbolSize: 10,
-            itemStyle: {
-              color: 'rgba(84, 112, 198, 0.7)'
-            },
-            data: [[now - 60000, 0], [now, 0]] // 빈 차트 표시용 더미 데이터
-          }
-        ]
+      // Only update state if we have new data
+      setTimeSeriesData(prevData => {
+        // Combine existing and new data, sort, and limit
+        const combinedData = [...prevData, ...newData]
+          .sort((a, b) => a[0] - b[0])
+          .slice(-MAX_DATA_POINTS);
+        
+        // Update the last processed timestamp
+        if (combinedData.length) {
+          lastProcessedTimestampRef.current = Math.max(
+            lastProcessedTimestampRef.current,
+            combinedData[combinedData.length - 1][0]
+          );
+        }
+        
+        return combinedData;
       });
-      return;
+
+      setHighLatencyData(prevData => {
+        return [...prevData, ...newHighLatencyData]
+          .sort((a, b) => a[0] - b[0])
+          .slice(-MAX_DATA_POINTS);
+      });
     }
 
-    // 데이터 범위 계산
-    const latencies = timeSeriesData.map(item => item[1]);
-    const maxLatency = Math.max(...latencies);
-    const minLatency = Math.min(...latencies);
-    const avgLatency = latencies.reduce((sum, val) => sum + val, 0) / latencies.length;
-    const minTime = timeSeriesData[0][0];
-    const maxTime = timeSeriesData[timeSeriesData.length - 1][0];
+    return hasNewData;
+  }, []);
 
-    // 차트 옵션 업데이트
-    const newOption = {
+  // Effect to process trace data when it changes
+  useEffect(() => {
+    processTraceData(traceData);
+  }, [traceData, processTraceData]);
+
+  // Create the empty chart configuration
+  const createEmptyChartOption = useCallback(() => {
+    const now = Date.now();
+    return {
+      title: {
+        text: '실시간 지연 시간 모니터링',
+        left: 'center'
+      },
+      tooltip: {
+        trigger: 'item',
+        formatter: function(params: any) {
+          const timestamp = params.value[0];
+          const latency = params.value[1];
+          return `${new Date(timestamp).toLocaleTimeString()}<br/>지연 시간: ${latency}ms`;
+        }
+      },
+      xAxis: {
+        type: 'time',
+        name: '시간',
+        nameLocation: 'middle',
+        nameGap: 30,
+        axisLabel: {
+          formatter: (value: number) => new Date(value).toLocaleTimeString()
+        }
+      },
+      yAxis: {
+        type: 'value',
+        name: '지연 시간 (ms)',
+        nameLocation: 'middle',
+        nameGap: 40
+      },
+      grid: {
+        left: '5%',
+        right: '5%',
+        bottom: '10%',
+        top: '15%',
+        containLabel: true
+      },
+      series: [
+        {
+          name: '지연 시간',
+          type: 'scatter',
+          symbol: 'circle',
+          symbolSize: 10,
+          itemStyle: {
+            color: 'rgba(84, 112, 198, 0.7)'
+          },
+          data: [[now - 60000, 0], [now, 0]] // Empty chart dummy data
+        }
+      ]
+    };
+  }, []);
+
+  // Create chart options with data
+  const createChartOption = useCallback((timeData: DataPoint[], highLatencyData: DataPoint[]) => {
+    // Calculate data statistics
+    const latencies = timeData.map(item => item[1]);
+    const maxLatency = Math.max(...latencies, 1); // Prevent division by zero
+    const minLatency = Math.min(...latencies);
+    const avgLatency = latencies.reduce((sum, val) => sum + val, 0) / (latencies.length || 1);
+    const minTime = timeData[0]?.[0] || Date.now() - 60000;
+    const maxTime = timeData[timeData.length - 1]?.[0] || Date.now();
+
+    return {
       title: {
         text: '실시간 지연 시간 모니터링',
         left: 'center'
@@ -202,9 +208,7 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
         min: minTime,
         max: maxTime,
         axisLabel: {
-          formatter: (value: number) => {
-            return new Date(value).toLocaleTimeString();
-          }
+          formatter: (value: number) => new Date(value).toLocaleTimeString()
         },
         splitLine: {
           show: true,
@@ -220,7 +224,7 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
         nameLocation: 'middle',
         nameGap: 40,
         min: 0,
-        max: maxLatency * 1.2, // 최대값에 여유 공간 추가
+        max: maxLatency * 1.2, // Add space above max value
         splitLine: {
           show: true,
           lineStyle: {
@@ -242,40 +246,36 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
           type: 'scatter',
           symbol: 'circle',
           symbolSize: (value: number[]) => {
-            // 지연 시간에 따라 동적 크기 설정
             const latency = value[1];
             return 5 + (latency / maxLatency) * 10;
           },
           itemStyle: {
             color: (params: any) => {
-              // 지연 시간에 따라 색상 변경
               const latency = params.value[1];
               
-              // 지연 시간 수준에 따른 색상 그라디언트
               if (latency < avgLatency * 0.5) {
-                return '#52c41a'; // 매우 낮은 지연
+                return '#52c41a'; // Very low latency
               } else if (latency < avgLatency) {
-                return '#1890ff'; // 평균 이하 지연
+                return '#1890ff'; // Below average
               } else if (latency < avgLatency * 1.5) {
-                return '#faad14'; // 평균 이상 지연
+                return '#faad14'; // Above average
               } else if (latency < LATENCY_THRESHOLD) {
-                return '#fa8c16'; // 높은 지연
+                return '#fa8c16'; // High latency
               } else {
-                return '#ff4d4f'; // 매우 높은 지연 (임계값 이상)
+                return '#ff4d4f'; // Very high latency (above threshold)
               }
             },
             opacity: 0.8,
             shadowBlur: 5,
             shadowColor: 'rgba(0, 0, 0, 0.2)'
           },
-          data: timeSeriesData
+          data: timeData
         },
         {
           name: '고지연 요청',
           type: 'effectScatter',
           symbol: 'circle',
           symbolSize: (value: number[]) => {
-            // 지연 시간에 따라 동적 크기 설정
             const latency = value[1];
             return 10 + (latency / maxLatency) * 15;
           },
@@ -295,7 +295,7 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
       ],
       visualMap: {
         show: false,
-        dimension: 1, // y 축 값(지연 시간)에 따라 색상 매핑
+        dimension: 1,
         min: minLatency,
         max: maxLatency,
         inRange: {
@@ -303,32 +303,87 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
         }
       }
     };
+  }, []);
 
-    setOption(newOption);
-  }, [timeSeriesData, highLatencyData]);
+  // Update chart options when data changes
+  useEffect(() => {
+    if (timeSeriesData.length === 0) {
+      setOption(createEmptyChartOption());
+      return;
+    }
 
-  // 차트 이벤트 처리
-  const onEvents = {
-    click: (params: any) => {
-      // 클릭된 데이터 포인트의 타임스탬프
-      const timestamp = params.value[0];
+    setOption(createChartOption(timeSeriesData, highLatencyData));
+  }, [timeSeriesData, highLatencyData, createEmptyChartOption, createChartOption]);
+
+  // Find closest trace data point with binary search for better performance
+  const findClosestTraceData = useCallback((timestamp: number, traces: TraceItem[]): TraceItem | null => {
+    if (!traces.length) return null;
+    
+    // Sort traces by startTime if not already sorted
+    const sortedTraces = [...traces].sort((a, b) => a.startTime - b.startTime);
+    
+    let left = 0;
+    let right = sortedTraces.length - 1;
+    let closest = 0;
+    let minDiff = Infinity;
+    
+    // Binary search for closest timestamp
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      const diff = Math.abs(sortedTraces[mid].startTime - timestamp);
       
-      // 해당 타임스탬프에 가장 가까운 트레이스 데이터 찾기
-      const clickedTrace = traceData.reduce((closest, trace) => {
-        const traceDiff = Math.abs(trace.startTime - timestamp);
-        const closestDiff = Math.abs(closest?.startTime - timestamp) || Infinity;
-        return traceDiff < closestDiff ? trace : closest;
-      }, null);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = mid;
+      }
+      
+      if (sortedTraces[mid].startTime < timestamp) {
+        left = mid + 1;
+      } else {
+        right = mid - 1;
+      }
+    }
+    
+    return sortedTraces[closest];
+  }, []);
+
+  // Chart click event handler
+  const onEvents = useMemo(() => ({
+    click: (params: any) => {
+      const timestamp = params.value[0];
+      const clickedTrace = findClosestTraceData(timestamp, traceData);
       
       if (clickedTrace) {
         onDataPointClick(clickedTrace, 'trace');
       }
     }
-  };
+  }), [traceData, onDataPointClick, findClosestTraceData]);
 
-  // ECharts 인스턴스 참조 저장
+  // Chart ready callback
   const onChartReady = useCallback((instance: any) => {
-    chartInstanceRef.current = instance;
+    console.log('ECharts instance ready');
+  }, []);
+
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = debounce(() => {
+      if (echartsRef.current) {
+        const echartsInstance = echartsRef.current.getEchartsInstance();
+        echartsInstance.resize();
+      }
+    }, 300);
+
+    window.addEventListener('resize', handleResize);
+    
+    // Initial resize
+    if (echartsRef.current) {
+      const echartsInstance = echartsRef.current.getEchartsInstance();
+      echartsInstance.resize();
+    }
+    
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   return (
@@ -339,6 +394,7 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
         </div>
       ) : (
         <ReactECharts
+          ref={echartsRef} 
           option={option}
           style={{ height: '600px', width: '100%' }}
           onEvents={onEvents}
