@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import ReactECharts from 'echarts-for-react';
+import * as echarts from 'echarts';
 import debounce from 'lodash.debounce';
 
 interface TraceItem {
@@ -30,8 +30,8 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
   logData,
   onDataPointClick
 }) => {
-  const echartsRef = useRef<InstanceType<typeof ReactECharts>>(null);
-  const chartInstanceRef = useRef<any>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
+  const chartInstanceRef = useRef<echarts.ECharts | null>(null);
   const lastProcessedTimestampRef = useRef<number>(0);
   const dataRef = useRef<{
     timeSeriesData: DataPoint[];
@@ -41,8 +41,8 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
     highLatencyData: []
   });
   
-  // 초기 차트 옵션 설정
-  const initialOption = useMemo(() => ({
+  // 초기 차트 옵션 생성
+  const getInitialOption = useCallback(() => ({
     title: {
       text: '실시간 지연 시간 모니터링',
       left: 'center'
@@ -155,11 +155,55 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
     ]
   }), []);
 
-  // 차트 인스턴스 준비 콜백
-  const onChartReady = useCallback((instance: any) => {
-    chartInstanceRef.current = instance;
-    console.log('ECharts instance ready');
-  }, []);
+  // 차트 초기화 함수
+  const initChart = useCallback(() => {
+    if (chartRef.current) {
+      // 기존 차트 인스턴스가 있으면 제거
+      if (chartInstanceRef.current) {
+        chartInstanceRef.current.dispose();
+      }
+      
+      // 새 차트 인스턴스 생성
+      const chartInstance = echarts.init(chartRef.current);
+      chartInstanceRef.current = chartInstance;
+      
+      // 초기 옵션 설정
+      chartInstance.setOption(getInitialOption());
+      
+      // 클릭 이벤트 핸들러 등록
+      chartInstance.on('click', function(params) {
+        // Type guard to ensure params.value exists and is an array
+        if (params && params.value && Array.isArray(params.value) && params.value.length > 0) {
+          const timestamp = params.value[0] as number;
+          
+          // 클릭된 지점과 가장 가까운 트레이스 찾기
+          const closestTrace = traceData.reduce((closest, trace) => {
+            const currentDiff = Math.abs(trace.startTime - timestamp);
+            const closestDiff = Math.abs(closest?.startTime - timestamp) || Infinity;
+            return currentDiff < closestDiff ? trace : closest;
+          }, traceData[0]);
+          
+          if (closestTrace) {
+            onDataPointClick(closestTrace, 'trace');
+          }
+        }
+      });
+      
+      console.log('ECharts instance initialized');
+    }
+  }, [getInitialOption, traceData, onDataPointClick]);
+
+  // 컴포넌트 마운트 시 차트 초기화
+  useEffect(() => {
+    initChart();
+    
+    return () => {
+      // 컴포넌트 언마운트 시 차트 인스턴스 정리
+      if (chartInstanceRef.current) {
+        chartInstanceRef.current.dispose();
+      }
+    };
+  }, [initChart]);
 
   // 트레이스 데이터 처리 함수
   const processTraceData = useCallback((newTraces: TraceItem[]) => {
@@ -217,7 +261,7 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
           { data: updatedTimeSeriesData },
           { data: updatedHighLatencyData }
         ]
-      }, { notMerge: false, lazyUpdate: true });
+      });
       
       // X축 범위 동적 조정
       if (updatedTimeSeriesData.length > 0) {
@@ -236,7 +280,7 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
           yAxis: {
             max: maxLatency
           }
-        }, { notMerge: false, lazyUpdate: true });
+        });
       }
     }
 
@@ -247,24 +291,6 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
   useEffect(() => {
     processTraceData(traceData);
   }, [traceData, processTraceData]);
-
-  // 차트 클릭 이벤트 핸들러
-  const onEvents = useMemo(() => ({
-    click: (params: any) => {
-      const timestamp = params.value[0];
-      
-      // 클릭된 지점과 가장 가까운 트레이스 찾기
-      const closestTrace = traceData.reduce((closest, trace) => {
-        const currentDiff = Math.abs(trace.startTime - timestamp);
-        const closestDiff = Math.abs(closest.startTime - timestamp);
-        return currentDiff < closestDiff ? trace : closest;
-      }, traceData[0]);
-      
-      if (closestTrace) {
-        onDataPointClick(closestTrace, 'trace');
-      }
-    }
-  }), [traceData, onDataPointClick]);
 
   // 리사이즈 핸들러
   useEffect(() => {
@@ -289,14 +315,9 @@ const TraceVisualization: React.FC<TraceVisualizationProps> = ({
           <p>데이터가 로드되지 않았습니다. 데이터가 수신되면 여기에 표시됩니다.</p>
         </div>
       ) : (
-        <ReactECharts
-          ref={echartsRef} 
-          option={initialOption}
+        <div 
+          ref={chartRef} 
           style={{ height: '600px', width: '100%' }}
-          onEvents={onEvents}
-          onChartReady={onChartReady}
-          notMerge={false}
-          lazyUpdate={true}
         />
       )}
     </div>
